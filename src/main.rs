@@ -10,9 +10,15 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
-                let mut buf = [0; 512];
-                stream.read(&mut buf).unwrap();
-                stream.write(b"+PONG\r\n").unwrap();
+                loop {
+                    let mut buf = [0; 512];
+                    let read_count = stream.read(&mut buf).unwrap();
+                    if read_count == 0 {
+                        println!("connection closed");
+                        break;
+                    }
+                    stream.write(b"+PONG\r\n").unwrap();
+                }
             }
             Err(e) => {
                 println!("error: {}", e);
