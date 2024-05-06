@@ -5,6 +5,9 @@ use std::{
     net::TcpListener,
 };
 
+use redis_starter_rust::command::RedisCommand;
+use redis_starter_rust::store;
+
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
@@ -35,56 +38,24 @@ fn handle_stream(mut stream: TcpStream) {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum RedisCommand {
-    Echo(String),
-    PING,
-}
-
-impl RedisCommand {
-    // *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
-    pub fn from_binary(data: &[u8]) -> RedisCommand {
-        let data_string = String::from_utf8(data.to_vec()).unwrap();
-        let mut lines = data_string.lines();
-        let _line_count = lines.next().unwrap();
-
-        let _command_length = lines.next().unwrap();
-        let command = lines.next().unwrap();
-
-        match command {
-            "ECHO" => RedisCommand::Echo(lines.skip(1).next().unwrap().to_string()),
-            "PING" => RedisCommand::PING,
-            _ => panic!("unknown command"),
-        }
-    }
-}
-
 fn handle_redis_command(command: RedisCommand) -> String {
     match command {
         RedisCommand::Echo(s) => s,
-        RedisCommand::PING => "PONG".to_string(),
+        RedisCommand::Ping => "PONG".to_string(),
+        RedisCommand::Set { key, value } => {
+            store::set(&key, &value);
+            "OK".to_string()
+        }
+        RedisCommand::Get { key } => match store::get(&key) {
+            Some(value) => value,
+            None => "nil".to_string(),
+        },
     }
 }
 
 fn format_returning_str(s: &str) -> String {
+    if s == "OK" {
+        return "+OK\r\n".to_string();
+    }
     format!("${}\r\n{}\r\n", s.len(), s)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_redis_command_from_binary_ping() {
-        let data = b"*1\r\n$4\r\nPING\r\n";
-        let cmd = RedisCommand::from_binary(data);
-        assert_eq!(cmd, RedisCommand::PING);
-    }
-
-    #[test]
-    fn test_redis_command_from_binary_echo() {
-        let data = b"*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n";
-        let cmd = RedisCommand::from_binary(data);
-        assert_eq!(cmd, RedisCommand::Echo("hey".to_string()));
-    }
 }
