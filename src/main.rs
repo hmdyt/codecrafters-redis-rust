@@ -5,7 +5,7 @@ use std::{
     net::TcpListener,
 };
 
-use redis_starter_rust::command::RedisCommand;
+use redis_starter_rust::command::{RedisCommand, SetCommandOption};
 use redis_starter_rust::store;
 
 fn main() {
@@ -42,8 +42,15 @@ fn handle_redis_command(command: RedisCommand) -> String {
     match command {
         RedisCommand::Echo(s) => s,
         RedisCommand::Ping => "PONG".to_string(),
-        RedisCommand::Set { key, value } => {
-            store::set(&key, &value);
+        RedisCommand::Set {
+            key,
+            value,
+            options,
+        } => {
+            let px = options.iter().find_map(|option| match option {
+                SetCommandOption::Px(px) => Some(*px),
+            });
+            store::set(&key, &value, px);
             "OK".to_string()
         }
         RedisCommand::Get { key } => match store::get(&key) {
@@ -54,8 +61,9 @@ fn handle_redis_command(command: RedisCommand) -> String {
 }
 
 fn format_returning_str(s: &str) -> String {
-    if s == "OK" {
-        return "+OK\r\n".to_string();
+    match s {
+        "OK" => return "+OK\r\n".to_string(),
+        "nil" => return "$-1\r\n".to_string(),
+        s => format!("${}\r\n{}\r\n", s.len(), s),
     }
-    format!("${}\r\n{}\r\n", s.len(), s)
 }

@@ -2,8 +2,14 @@
 pub enum RedisCommand {
     Echo(String),
     Ping,
-    Set { key: String, value: String },
-    Get { key: String },
+    Set {
+        key: String,
+        value: String,
+        options: Vec<SetCommandOption>,
+    },
+    Get {
+        key: String,
+    },
 }
 
 impl RedisCommand {
@@ -21,14 +27,43 @@ impl RedisCommand {
         match command {
             "ECHO" => RedisCommand::Echo(args_iter.next().unwrap().to_string()),
             "PING" => RedisCommand::Ping,
-            "SET" => RedisCommand::Set {
-                key: args_iter.next().unwrap().to_string(),
-                value: args_iter.next().unwrap().to_string(),
-            },
+            "SET" => {
+                let key = args_iter.next().unwrap().to_string();
+                let value = args_iter.next().unwrap().to_string();
+                let mut options = vec![];
+                loop {
+                    match args_iter.next() {
+                        Some(option) => {
+                            let value = args_iter.next().unwrap();
+                            options.push(SetCommandOption::new(option, value));
+                        }
+                        None => break,
+                    }
+                }
+                RedisCommand::Set {
+                    key,
+                    value,
+                    options,
+                }
+            }
             "GET" => RedisCommand::Get {
                 key: args_iter.next().unwrap().to_string(),
             },
             _ => panic!("unknown command"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum SetCommandOption {
+    Px(u128), // milliseconds
+}
+
+impl SetCommandOption {
+    pub fn new(option: &str, value: &str) -> SetCommandOption {
+        match option {
+            "px" => SetCommandOption::Px(value.parse().unwrap()),
+            _ => panic!("unknown option"),
         }
     }
 }
@@ -53,13 +88,14 @@ mod tests {
 
     #[test]
     fn test_redis_command_from_binary_set() {
-        let data = b"*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n";
+        let data = b"*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n$2\r\npx\r\n$4\r\n1000\r\n";
         let cmd = RedisCommand::from_binary(data);
         assert_eq!(
             cmd,
             RedisCommand::Set {
                 key: "key".to_string(),
-                value: "value".to_string()
+                value: "value".to_string(),
+                options: vec![SetCommandOption::Px(1000)]
             }
         );
     }
