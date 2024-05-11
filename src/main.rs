@@ -6,13 +6,14 @@ use std::{
 };
 
 use redis_starter_rust::command::{InfoSection, RedisCommand, SetCommandOption};
-use redis_starter_rust::store;
+use redis_starter_rust::{role, store};
 
 const DEFAULT_PORT: &str = "6379";
 const DEFAULT_HOST: &str = "127.0.0.1";
 
 fn main() {
     let args = redis_starter_rust::cli::CliArgs::parse();
+    role::set_role(args.role);
     let listener = TcpListener::bind(format!(
         "{}:{}",
         args.host.unwrap_or(DEFAULT_HOST.to_string()),
@@ -67,9 +68,20 @@ fn handle_redis_command(command: RedisCommand) -> String {
             None => "nil".to_string(),
         },
         RedisCommand::Info { section } => match section {
-            InfoSection::All => "role:master".to_string(),
-            InfoSection::Replication => "role:master".to_string(),
+            InfoSection::All => handle_redis_command_info_replication(),
+            InfoSection::Replication => handle_redis_command_info_replication(),
         },
+    }
+}
+
+fn handle_redis_command_info_replication() -> String {
+    let role = role::get_role();
+    match role {
+        role::Role::Master => "role:master".to_string(),
+        role::Role::Slave {
+            master_host: _,
+            master_port: _,
+        } => "role:slave".to_string(),
     }
 }
 
