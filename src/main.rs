@@ -5,7 +5,7 @@ use std::{
     net::TcpListener,
 };
 
-use redis_starter_rust::command::{RedisCommand, SetCommandOption};
+use redis_starter_rust::command::{InfoSection, RedisCommand, SetCommandOption};
 use redis_starter_rust::store;
 
 const DEFAULT_PORT: &str = "6379";
@@ -65,6 +65,10 @@ fn handle_redis_command(command: RedisCommand) -> String {
         RedisCommand::Get { key } => match store::get(&key) {
             Some(value) => value,
             None => "nil".to_string(),
+        },
+        RedisCommand::Info { section } => match section {
+            InfoSection::All => "role:master".to_string(),
+            InfoSection::Replication => "role:master".to_string(),
         },
     }
 }

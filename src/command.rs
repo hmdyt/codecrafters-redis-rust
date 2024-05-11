@@ -10,6 +10,9 @@ pub enum RedisCommand {
     Get {
         key: String,
     },
+    Info {
+        section: InfoSection,
+    },
 }
 
 impl RedisCommand {
@@ -49,6 +52,9 @@ impl RedisCommand {
             "GET" => RedisCommand::Get {
                 key: args_iter.next().unwrap().to_string(),
             },
+            "INFO" => RedisCommand::Info {
+                section: InfoSection::new(args_iter.next()),
+            },
             _ => panic!("unknown command"),
         }
     }
@@ -64,6 +70,22 @@ impl SetCommandOption {
         match option {
             "px" => SetCommandOption::Px(value.parse().unwrap()),
             _ => panic!("unknown option"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum InfoSection {
+    All,
+    Replication,
+}
+
+impl InfoSection {
+    pub fn new(maybe_str: Option<&str>) -> Self {
+        match maybe_str {
+            Some("replication") => InfoSection::Replication,
+            None => InfoSection::All,
+            _ => panic!("unknown section"),
         }
     }
 }
@@ -108,6 +130,30 @@ mod tests {
             cmd,
             RedisCommand::Get {
                 key: "key".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_redis_command_from_binary_info() {
+        let data = b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n";
+        let cmd = RedisCommand::from_binary(data);
+        assert_eq!(
+            cmd,
+            RedisCommand::Info {
+                section: InfoSection::Replication
+            }
+        );
+    }
+
+    #[test]
+    fn test_redis_command_from_binary_info_all() {
+        let data = b"*2\r\n$4\r\nINFO\r\n";
+        let cmd = RedisCommand::from_binary(data);
+        assert_eq!(
+            cmd,
+            RedisCommand::Info {
+                section: InfoSection::All
             }
         );
     }
