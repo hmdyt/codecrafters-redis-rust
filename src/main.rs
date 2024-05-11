@@ -7,7 +7,7 @@ use std::{
 
 use redis_starter_rust::command::{InfoSection, RedisCommand, SetCommandOption};
 use redis_starter_rust::resp::RESP;
-use redis_starter_rust::server_state::ServerState;
+use redis_starter_rust::server_state::{Role, ServerState};
 use redis_starter_rust::{server_state, store};
 
 const DEFAULT_PORT: &str = "6379";
@@ -15,7 +15,9 @@ const DEFAULT_HOST: &str = "127.0.0.1";
 
 fn main() {
     let args = redis_starter_rust::cli::CliArgs::parse();
-    ServerState::init(args.role);
+    ServerState::init(&args.role);
+    ping_to_master(args.role);
+
     let listener = TcpListener::bind(format!(
         "{}:{}",
         args.host.unwrap_or(DEFAULT_HOST.to_string()),
@@ -32,6 +34,20 @@ fn main() {
                 println!("error: {}", e);
             }
         });
+    }
+}
+
+fn ping_to_master(role: Role) {
+    match role {
+        Role::Master => {}
+        Role::Slave {
+            master_host,
+            master_port,
+        } => {
+            let stream = TcpStream::connect(format!("{}:{}", master_host, master_port)).unwrap();
+            let mut node = redis_starter_rust::node::Node::new(stream);
+            node.write(RESP::Array(vec![RESP::BulkStrings("PING".to_string())]));
+        }
     }
 }
 

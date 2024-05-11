@@ -3,6 +3,7 @@ pub enum RESP {
     SimpleString(String),
     BulkStrings(String),
     NullBulkStrings,
+    Array(Vec<RESP>),
 }
 
 impl RESP {
@@ -11,6 +12,13 @@ impl RESP {
             RESP::SimpleString(s) => format!("+{}\r\n", s),
             RESP::BulkStrings(s) => format!("${}\r\n{}\r\n", s.len(), s),
             RESP::NullBulkStrings => "$-1\r\n".to_string(),
+            RESP::Array(array) => {
+                let mut ret = format!("*{}\r\n", array.len());
+                for resp in array {
+                    ret.push_str(&resp.to_string());
+                }
+                ret
+            }
         }
     }
 

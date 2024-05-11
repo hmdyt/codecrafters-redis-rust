@@ -6,6 +6,7 @@ const ROLE_KEY: &str = "__role__";
 const MASTER_REPLID_KEY: &str = "__master_replid__";
 const MASTER_REPL_OFFSET_KEY: &str = "__master_repl_offset__";
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum Role {
     Master,
     Slave {
@@ -52,9 +53,9 @@ pub struct ServerState {
 }
 
 impl ServerState {
-    pub fn init(role: Role) {
+    pub fn init(role: &Role) {
         Self::set(ServerState {
-            role,
+            role: role.clone(),
             master_replid: "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string(),
             master_repl_offset: 0,
         });
