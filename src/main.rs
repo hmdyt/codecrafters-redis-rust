@@ -6,6 +6,8 @@ use std::{
 };
 
 use redis_starter_rust::command::{InfoSection, RedisCommand, SetCommandOption};
+use redis_starter_rust::resp::RESP;
+use redis_starter_rust::server_state::ServerState;
 use redis_starter_rust::{server_state, store};
 
 const DEFAULT_PORT: &str = "6379";
@@ -13,7 +15,7 @@ const DEFAULT_HOST: &str = "127.0.0.1";
 
 fn main() {
     let args = redis_starter_rust::cli::CliArgs::parse();
-    server_state::set_role(args.role);
+    ServerState::init(args.role);
     let listener = TcpListener::bind(format!(
         "{}:{}",
         args.host.unwrap_or(DEFAULT_HOST.to_string()),
@@ -43,15 +45,15 @@ fn handle_stream(mut stream: TcpStream) {
             break;
         } else {
             let ret = handle_redis_command(RedisCommand::from_binary(&buf[..read_count]));
-            stream.write(format_returning_str(&ret).as_bytes()).unwrap();
+            stream.write(ret.to_string().as_bytes()).unwrap();
         }
     }
 }
 
-fn handle_redis_command(command: RedisCommand) -> String {
+fn handle_redis_command(command: RedisCommand) -> RESP {
     match command {
-        RedisCommand::Echo(s) => s,
-        RedisCommand::Ping => "PONG".to_string(),
+        RedisCommand::Echo(s) => RESP::bulk_strings(&s),
+        RedisCommand::Ping => RESP::simple_string("PONG"),
         RedisCommand::Set {
             key,
             value,
@@ -61,11 +63,11 @@ fn handle_redis_command(command: RedisCommand) -> String {
                 SetCommandOption::Px(px) => Some(*px),
             });
             store::set(&key, &value, px);
-            "OK".to_string()
+            RESP::simple_string("OK")
         }
         RedisCommand::Get { key } => match store::get(&key) {
-            Some(value) => value,
-            None => "nil".to_string(),
+            Some(value) => RESP::bulk_strings(&value),
+            None => RESP::NullBulkStrings,
         },
         RedisCommand::Info { section } => match section {
             InfoSection::All => handle_redis_command_info_replication(),
@@ -74,21 +76,16 @@ fn handle_redis_command(command: RedisCommand) -> String {
     }
 }
 
-fn handle_redis_command_info_replication() -> String {
-    let role = server_state::get_role();
-    match role {
-        server_state::Role::Master => "role:master".to_string(),
+fn handle_redis_command_info_replication() -> RESP {
+    let state = ServerState::get();
+    match state.role {
+        server_state::Role::Master => RESP::BulkStrings(format!(
+            "role:master\nmaster_replid:{}\nmaster_repl_offset:{}",
+            state.master_replid, state.master_repl_offset
+        )),
         server_state::Role::Slave {
             master_host: _,
             master_port: _,
-        } => "role:slave".to_string(),
-    }
-}
-
-fn format_returning_str(s: &str) -> String {
-    match s {
-        "OK" => return "+OK\r\n".to_string(),
-        "nil" => return "$-1\r\n".to_string(),
-        s => format!("${}\r\n{}\r\n", s.len(), s),
+        } => RESP::bulk_strings("role:slave"),
     }
 }
