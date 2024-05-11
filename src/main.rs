@@ -63,6 +63,14 @@ fn handshake(role: Role, port: &str) {
                 .to_resp(),
             );
             let _ = node.read();
+
+            node.write(
+                RedisCommand::Psync {
+                    master_replid: "?".to_string(),
+                    master_repl_offset: -1,
+                }
+                .to_resp(),
+            );
         }
     }
 }
@@ -76,10 +84,6 @@ fn handle_stream(mut stream: TcpStream) {
             println!("connection closed");
             break;
         } else {
-            println!(
-                "👺received: {:?}",
-                String::from_utf8_lossy(&buf[..read_count])
-            );
             let ret = handle_redis_command(RedisCommand::new(RESP::from_bytes(&buf[..read_count])));
             stream.write(ret.to_string().as_bytes()).unwrap();
         }
@@ -112,6 +116,9 @@ fn handle_redis_command(command: RedisCommand) -> RESP {
         RedisCommand::Replconf { .. } => {
             // TODO: implement
             RESP::simple_string("OK")
+        }
+        RedisCommand::Psync { .. } => {
+            todo!()
         }
     }
 }

@@ -18,6 +18,10 @@ pub enum RedisCommand {
     Replconf {
         command: ReplconfCommand,
     },
+    Psync {
+        master_replid: String,
+        master_repl_offset: i64,
+    },
 }
 
 impl RedisCommand {
@@ -32,6 +36,7 @@ impl RedisCommand {
                     "GET" => Self::new_get(&mut iter),
                     "INFO" => Self::new_info(&mut iter),
                     "REPLCONF" => Self::new_replconf(&mut iter),
+                    "PSYNC" => Self::new_psync(&mut iter),
                     _ => panic!("unknown command"),
                 },
                 _ => panic!("invalid command"),
@@ -115,6 +120,21 @@ impl RedisCommand {
         }
     }
 
+    fn new_psync(iter: &mut std::slice::Iter<RESP>) -> RedisCommand {
+        let master_replid = match iter.next().unwrap() {
+            RESP::BulkStrings(master_replid) => master_replid,
+            _ => panic!("invalid command"),
+        };
+        let master_repl_offset = match iter.next().unwrap() {
+            RESP::BulkStrings(master_repl_offset) => master_repl_offset,
+            _ => panic!("invalid command"),
+        };
+        RedisCommand::Psync {
+            master_replid: master_replid.to_string(),
+            master_repl_offset: master_repl_offset.parse().unwrap(),
+        }
+    }
+
     pub fn to_resp(self) -> RESP {
         match self {
             RedisCommand::Ping => RESP::Array(vec![RESP::BulkStrings("PING".to_string())]),
@@ -165,6 +185,14 @@ impl RedisCommand {
                     RESP::BulkStrings(capa),
                 ]),
             },
+            RedisCommand::Psync {
+                master_replid,
+                master_repl_offset,
+            } => RESP::Array(vec![
+                RESP::BulkStrings("PSYNC".to_string()),
+                RESP::BulkStrings(master_replid),
+                RESP::BulkStrings(master_repl_offset.to_string()),
+            ]),
         }
     }
 }
@@ -315,6 +343,22 @@ mod tests {
             RedisCommand::new(resp),
             RedisCommand::Replconf {
                 command: ReplconfCommand::Capa("eof".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_new_psync() {
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("PSYNC".to_string()),
+            RESP::BulkStrings("master_replid".to_string()),
+            RESP::BulkStrings("1000".to_string()),
+        ]);
+        assert_eq!(
+            RedisCommand::new(resp),
+            RedisCommand::Psync {
+                master_replid: "master_replid".to_string(),
+                master_repl_offset: 1000
             }
         );
     }
