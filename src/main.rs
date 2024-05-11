@@ -118,7 +118,11 @@ fn handle_redis_command(command: RedisCommand) -> RESP {
             RESP::simple_string("OK")
         }
         RedisCommand::Psync { .. } => {
-            todo!()
+            let state = ServerState::get();
+            RESP::SimpleString(format!(
+                "FULLRESYNC {} {}\n",
+                state.master_replid, state.master_repl_offset
+            ))
         }
     }
 }
