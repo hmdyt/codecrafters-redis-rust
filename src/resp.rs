@@ -25,7 +25,6 @@ impl RESP {
     pub fn from_bytes(data: &[u8]) -> Self {
         let mut iter = data.iter().map(|&x| x as char);
         let ret = Self::parse(&mut iter);
-        assert_eq!(iter.next(), None);
         ret
     }
 

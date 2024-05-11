@@ -1,14 +1,13 @@
+use redis_starter_rust::command::{InfoSection, RedisCommand, ReplconfCommand, SetCommandOption};
+use redis_starter_rust::resp::RESP;
+use redis_starter_rust::server_state::{Role, ServerState};
+use redis_starter_rust::{server_state, store};
 use std::net::TcpStream;
 use std::thread;
 use std::{
     io::{Read, Write},
     net::TcpListener,
 };
-
-use redis_starter_rust::command::{InfoSection, RedisCommand, SetCommandOption};
-use redis_starter_rust::resp::RESP;
-use redis_starter_rust::server_state::{Role, ServerState};
-use redis_starter_rust::{server_state, store};
 
 const DEFAULT_PORT: &str = "6379";
 const DEFAULT_HOST: &str = "127.0.0.1";
@@ -47,6 +46,23 @@ fn handshake(role: Role, port: &str) {
             let stream = TcpStream::connect(format!("{}:{}", master_host, master_port)).unwrap();
             let mut node = redis_starter_rust::node::Node::new(stream);
             node.write(RedisCommand::Ping.to_resp());
+            let _ = node.read();
+
+            node.write(
+                RedisCommand::Replconf {
+                    command: ReplconfCommand::ListeningPort(port.to_string()),
+                }
+                .to_resp(),
+            );
+            let _ = node.read();
+
+            node.write(
+                RedisCommand::Replconf {
+                    command: ReplconfCommand::Capa("psync2".to_string()),
+                }
+                .to_resp(),
+            );
+            let _ = node.read();
         }
     }
 }
@@ -60,6 +76,10 @@ fn handle_stream(mut stream: TcpStream) {
             println!("connection closed");
             break;
         } else {
+            println!(
+                "👺received: {:?}",
+                String::from_utf8_lossy(&buf[..read_count])
+            );
             let ret = handle_redis_command(RedisCommand::new(RESP::from_bytes(&buf[..read_count])));
             stream.write(ret.to_string().as_bytes()).unwrap();
         }
@@ -89,6 +109,10 @@ fn handle_redis_command(command: RedisCommand) -> RESP {
             InfoSection::All => handle_redis_command_info_replication(),
             InfoSection::Replication => handle_redis_command_info_replication(),
         },
+        RedisCommand::Replconf { .. } => {
+            // TODO: implement
+            RESP::simple_string("OK")
+        }
     }
 }
 

@@ -15,6 +15,9 @@ pub enum RedisCommand {
     Info {
         section: InfoSection,
     },
+    Replconf {
+        command: ReplconfCommand,
+    },
 }
 
 impl RedisCommand {
@@ -28,6 +31,7 @@ impl RedisCommand {
                     "SET" => Self::new_set(&mut iter),
                     "GET" => Self::new_get(&mut iter),
                     "INFO" => Self::new_info(&mut iter),
+                    "REPLCONF" => Self::new_replconf(&mut iter),
                     _ => panic!("unknown command"),
                 },
                 _ => panic!("invalid command"),
@@ -97,6 +101,20 @@ impl RedisCommand {
         RedisCommand::Info { section }
     }
 
+    fn new_replconf(iter: &mut std::slice::Iter<RESP>) -> RedisCommand {
+        let command = match iter.next().unwrap() {
+            RESP::BulkStrings(command) => command,
+            _ => panic!("invalid command"),
+        };
+        let arg = match iter.next().unwrap() {
+            RESP::BulkStrings(arg) => arg,
+            _ => panic!("invalid command"),
+        };
+        RedisCommand::Replconf {
+            command: ReplconfCommand::new(command, arg),
+        }
+    }
+
     pub fn to_resp(self) -> RESP {
         match self {
             RedisCommand::Ping => RESP::Array(vec![RESP::BulkStrings("PING".to_string())]),
@@ -135,6 +153,18 @@ impl RedisCommand {
                     RESP::BulkStrings("replication".to_string()),
                 ]),
             },
+            RedisCommand::Replconf { command } => match command {
+                ReplconfCommand::ListeningPort(port) => RESP::Array(vec![
+                    RESP::BulkStrings("REPLCONF".to_string()),
+                    RESP::BulkStrings("listening-port".to_string()),
+                    RESP::BulkStrings(port),
+                ]),
+                ReplconfCommand::Capa(capa) => RESP::Array(vec![
+                    RESP::BulkStrings("REPLCONF".to_string()),
+                    RESP::BulkStrings("capa".to_string()),
+                    RESP::BulkStrings(capa),
+                ]),
+            },
         }
     }
 }
@@ -165,6 +195,22 @@ impl InfoSection {
             Some("replication") => InfoSection::Replication,
             None => InfoSection::All,
             _ => panic!("unknown section"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ReplconfCommand {
+    ListeningPort(String),
+    Capa(String),
+}
+
+impl ReplconfCommand {
+    pub fn new(command: &str, arg: &str) -> Self {
+        match command {
+            "listening-port" => ReplconfCommand::ListeningPort(arg.to_string()),
+            "capa" => ReplconfCommand::Capa(arg.to_string()),
+            _ => panic!("unknown command"),
         }
     }
 }
@@ -242,6 +288,33 @@ mod tests {
             RedisCommand::new(resp),
             RedisCommand::Info {
                 section: InfoSection::Replication
+            }
+        );
+    }
+
+    #[test]
+    fn test_new_replconf() {
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("REPLCONF".to_string()),
+            RESP::BulkStrings("listening-port".to_string()),
+            RESP::BulkStrings("12345".to_string()),
+        ]);
+        assert_eq!(
+            RedisCommand::new(resp),
+            RedisCommand::Replconf {
+                command: ReplconfCommand::ListeningPort("12345".to_string())
+            }
+        );
+
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("REPLCONF".to_string()),
+            RESP::BulkStrings("capa".to_string()),
+            RESP::BulkStrings("eof".to_string()),
+        ]);
+        assert_eq!(
+            RedisCommand::new(resp),
+            RedisCommand::Replconf {
+                command: ReplconfCommand::Capa("eof".to_string())
             }
         );
     }
