@@ -16,7 +16,7 @@ const DEFAULT_HOST: &str = "127.0.0.1";
 fn main() {
     let args = redis_starter_rust::cli::CliArgs::parse();
     ServerState::init(&args.role);
-    ping_to_master(args.role);
+    handshake(args.role, args.port.as_deref().unwrap_or(DEFAULT_PORT));
 
     let listener = TcpListener::bind(format!(
         "{}:{}",
@@ -37,7 +37,7 @@ fn main() {
     }
 }
 
-fn ping_to_master(role: Role) {
+fn handshake(role: Role, port: &str) {
     match role {
         Role::Master => {}
         Role::Slave {
@@ -46,7 +46,7 @@ fn ping_to_master(role: Role) {
         } => {
             let stream = TcpStream::connect(format!("{}:{}", master_host, master_port)).unwrap();
             let mut node = redis_starter_rust::node::Node::new(stream);
-            node.write(RESP::Array(vec![RESP::BulkStrings("PING".to_string())]));
+            node.write(RedisCommand::Ping.to_resp());
         }
     }
 }
@@ -60,7 +60,7 @@ fn handle_stream(mut stream: TcpStream) {
             println!("connection closed");
             break;
         } else {
-            let ret = handle_redis_command(RedisCommand::from_binary(&buf[..read_count]));
+            let ret = handle_redis_command(RedisCommand::new(RESP::from_bytes(&buf[..read_count])));
             stream.write(ret.to_string().as_bytes()).unwrap();
         }
     }

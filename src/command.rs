@@ -1,3 +1,5 @@
+use crate::resp::RESP;
+
 #[derive(Debug, PartialEq)]
 pub enum RedisCommand {
     Echo(String),
@@ -16,46 +18,123 @@ pub enum RedisCommand {
 }
 
 impl RedisCommand {
-    // *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
-    pub fn from_binary(data: &[u8]) -> RedisCommand {
-        let data_string = String::from_utf8(data.to_vec()).unwrap();
-        let mut lines = data_string.lines();
-        let _line_count = lines.next().unwrap();
+    pub fn new(resp: RESP) -> Self {
+        if let RESP::Array(array) = resp {
+            let mut iter = array.iter();
+            match iter.next().unwrap() {
+                RESP::BulkStrings(command) => match command.as_str() {
+                    "PING" => RedisCommand::Ping,
+                    "ECHO" => Self::new_echo(&mut iter),
+                    "SET" => Self::new_set(&mut iter),
+                    "GET" => Self::new_get(&mut iter),
+                    "INFO" => Self::new_info(&mut iter),
+                    _ => panic!("unknown command"),
+                },
+                _ => panic!("invalid command"),
+            }
+        } else {
+            panic!("invalid command");
+        }
+    }
 
-        let _command_length = lines.next().unwrap();
-        let command = lines.next().unwrap();
+    fn new_echo(iter: &mut std::slice::Iter<RESP>) -> Self {
+        let value = match iter.next().unwrap() {
+            RESP::BulkStrings(value) => value,
+            _ => panic!("invalid command"),
+        };
+        RedisCommand::Echo(value.to_string())
+    }
 
-        let mut args_iter = lines.skip(1).step_by(2);
+    fn new_set(iter: &mut std::slice::Iter<RESP>) -> Self {
+        let key = match iter.next().unwrap() {
+            RESP::BulkStrings(key) => key,
+            _ => panic!("invalid command"),
+        };
+        let value = match iter.next().unwrap() {
+            RESP::BulkStrings(value) => value,
+            _ => panic!("invalid command"),
+        };
+        let mut options = vec![];
+        loop {
+            match iter.next() {
+                Some(option) => {
+                    let value = match iter.next().unwrap() {
+                        RESP::BulkStrings(value) => value,
+                        _ => panic!("invalid command"),
+                    };
+                    let option = match option {
+                        RESP::BulkStrings(option) => option,
+                        _ => panic!("invalid command"),
+                    };
+                    options.push(SetCommandOption::new(option, value));
+                }
+                None => break,
+            }
+        }
+        RedisCommand::Set {
+            key: key.to_string(),
+            value: value.to_string(),
+            options,
+        }
+    }
 
-        match command {
-            "ECHO" => RedisCommand::Echo(args_iter.next().unwrap().to_string()),
-            "PING" => RedisCommand::Ping,
-            "SET" => {
-                let key = args_iter.next().unwrap().to_string();
-                let value = args_iter.next().unwrap().to_string();
-                let mut options = vec![];
-                loop {
-                    match args_iter.next() {
-                        Some(option) => {
-                            let value = args_iter.next().unwrap();
-                            options.push(SetCommandOption::new(option, value));
+    fn new_get(iter: &mut std::slice::Iter<RESP>) -> Self {
+        let key = match iter.next().unwrap() {
+            RESP::BulkStrings(key) => key,
+            _ => panic!("invalid command"),
+        };
+        RedisCommand::Get {
+            key: key.to_string(),
+        }
+    }
+
+    fn new_info(iter: &mut std::slice::Iter<RESP>) -> Self {
+        let section = match iter.next() {
+            Some(RESP::BulkStrings(section)) => InfoSection::new(Some(section)),
+            None => InfoSection::new(None),
+            _ => panic!("invalid command"),
+        };
+        RedisCommand::Info { section }
+    }
+
+    pub fn to_resp(self) -> RESP {
+        match self {
+            RedisCommand::Ping => RESP::Array(vec![RESP::BulkStrings("PING".to_string())]),
+            RedisCommand::Echo(s) => RESP::Array(vec![
+                RESP::BulkStrings("ECHO".to_string()),
+                RESP::BulkStrings(s),
+            ]),
+            RedisCommand::Set {
+                key,
+                value,
+                options,
+            } => {
+                let mut ret = vec![
+                    RESP::BulkStrings("SET".to_string()),
+                    RESP::BulkStrings(key),
+                    RESP::BulkStrings(value),
+                ];
+                for option in options {
+                    match option {
+                        SetCommandOption::Px(px) => {
+                            ret.push(RESP::BulkStrings("px".to_string()));
+                            ret.push(RESP::BulkStrings(px.to_string()));
                         }
-                        None => break,
                     }
                 }
-                RedisCommand::Set {
-                    key,
-                    value,
-                    options,
-                }
+                RESP::Array(ret)
             }
-            "GET" => RedisCommand::Get {
-                key: args_iter.next().unwrap().to_string(),
+            RedisCommand::Get { key } => RESP::Array(vec![
+                RESP::BulkStrings("GET".to_string()),
+                RESP::BulkStrings(key),
+            ]),
+            RedisCommand::Info { section } => match section {
+                InfoSection::All => RESP::Array(vec![RESP::BulkStrings("INFO".to_string())]),
+                InfoSection::Replication => RESP::Array(vec![
+                    RESP::BulkStrings("INFO".to_string()),
+                    RESP::BulkStrings("replication".to_string()),
+                ]),
             },
-            "INFO" => RedisCommand::Info {
-                section: InfoSection::new(args_iter.next()),
-            },
-            _ => panic!("unknown command"),
         }
     }
 }
@@ -95,25 +174,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_redis_command_from_binary_ping() {
-        let data = b"*1\r\n$4\r\nPING\r\n";
-        let cmd = RedisCommand::from_binary(data);
-        assert_eq!(cmd, RedisCommand::Ping);
+    fn test_new_ping() {
+        let resp = RESP::Array(vec![RESP::BulkStrings("PING".to_string())]);
+        assert_eq!(RedisCommand::new(resp), RedisCommand::Ping);
     }
 
     #[test]
-    fn test_redis_command_from_binary_echo() {
-        let data = b"*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n";
-        let cmd = RedisCommand::from_binary(data);
-        assert_eq!(cmd, RedisCommand::Echo("hey".to_string()));
-    }
-
-    #[test]
-    fn test_redis_command_from_binary_set() {
-        let data = b"*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n$2\r\npx\r\n$4\r\n1000\r\n";
-        let cmd = RedisCommand::from_binary(data);
+    fn test_new_echo() {
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("ECHO".to_string()),
+            RESP::BulkStrings("hello".to_string()),
+        ]);
         assert_eq!(
-            cmd,
+            RedisCommand::new(resp),
+            RedisCommand::Echo("hello".to_string())
+        );
+    }
+
+    #[test]
+    fn test_new_set() {
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("SET".to_string()),
+            RESP::BulkStrings("key".to_string()),
+            RESP::BulkStrings("value".to_string()),
+            RESP::BulkStrings("px".to_string()),
+            RESP::BulkStrings("1000".to_string()),
+        ]);
+        assert_eq!(
+            RedisCommand::new(resp),
             RedisCommand::Set {
                 key: "key".to_string(),
                 value: "value".to_string(),
@@ -123,11 +211,13 @@ mod tests {
     }
 
     #[test]
-    fn test_redis_command_from_binary_get() {
-        let data = b"*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n";
-        let cmd = RedisCommand::from_binary(data);
+    fn test_new_get() {
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("GET".to_string()),
+            RESP::BulkStrings("key".to_string()),
+        ]);
         assert_eq!(
-            cmd,
+            RedisCommand::new(resp),
             RedisCommand::Get {
                 key: "key".to_string()
             }
@@ -135,25 +225,23 @@ mod tests {
     }
 
     #[test]
-    fn test_redis_command_from_binary_info() {
-        let data = b"*2\r\n$4\r\nINFO\r\n$11\r\nreplication\r\n";
-        let cmd = RedisCommand::from_binary(data);
+    fn test_new_info() {
+        let resp = RESP::Array(vec![RESP::BulkStrings("INFO".to_string())]);
         assert_eq!(
-            cmd,
-            RedisCommand::Info {
-                section: InfoSection::Replication
-            }
-        );
-    }
-
-    #[test]
-    fn test_redis_command_from_binary_info_all() {
-        let data = b"*2\r\n$4\r\nINFO\r\n";
-        let cmd = RedisCommand::from_binary(data);
-        assert_eq!(
-            cmd,
+            RedisCommand::new(resp),
             RedisCommand::Info {
                 section: InfoSection::All
+            }
+        );
+
+        let resp = RESP::Array(vec![
+            RESP::BulkStrings("INFO".to_string()),
+            RESP::BulkStrings("replication".to_string()),
+        ]);
+        assert_eq!(
+            RedisCommand::new(resp),
+            RedisCommand::Info {
+                section: InfoSection::Replication
             }
         );
     }
