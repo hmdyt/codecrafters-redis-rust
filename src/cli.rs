@@ -1,4 +1,4 @@
-use crate::role::Role;
+use crate::server_state::Role;
 
 pub struct CliArgs {
     pub host: Option<String>,
