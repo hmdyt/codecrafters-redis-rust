@@ -8,8 +8,17 @@ use std::{
 use redis_starter_rust::command::{RedisCommand, SetCommandOption};
 use redis_starter_rust::store;
 
+const DEFAULT_PORT: &str = "6379";
+const DEFAULT_HOST: &str = "127.0.0.1";
+
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let args = redis_starter_rust::cli::CliArgs::parse();
+    let listener = TcpListener::bind(format!(
+        "{}:{}",
+        args.host.unwrap_or(DEFAULT_HOST.to_string()),
+        args.port.unwrap_or(DEFAULT_PORT.to_string())
+    ))
+    .unwrap();
 
     for stream in listener.incoming() {
         thread::spawn(move || match stream {
