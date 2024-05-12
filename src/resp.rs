@@ -4,6 +4,7 @@ pub enum RESP {
     BulkStrings(String),
     NullBulkStrings,
     Array(Vec<RESP>),
+    Rdb(Vec<u8>),
 }
 
 impl RESP {
@@ -17,6 +18,14 @@ impl RESP {
                 for resp in array {
                     ret.push_str(&resp.to_string());
                 }
+                ret
+            }
+            Self::Rdb(data) => {
+                let mut ret = format!("${}\r\n", data.len());
+                for byte in data {
+                    ret.push(byte as char);
+                }
+                ret.push_str("\r\n");
                 ret
             }
         }
@@ -108,6 +117,10 @@ mod tests {
             ])
             .to_string(),
             "*2\r\n+OK\r\n$5\r\nvalue\r\n".to_string()
+        );
+        assert_eq!(
+            RESP::Rdb(vec![0x01, 0x02, 0x03]).to_string(),
+            "$3\r\n\x01\x02\x03\r\n".to_string()
         );
     }
 

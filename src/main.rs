@@ -119,10 +119,13 @@ fn handle_redis_command(command: RedisCommand) -> RESP {
         }
         RedisCommand::Psync { .. } => {
             let state = ServerState::get();
-            RESP::SimpleString(format!(
-                "FULLRESYNC {} {}\n",
-                state.master_replid, state.master_repl_offset
-            ))
+            RESP::Array(vec![
+                RESP::SimpleString(format!(
+                    "FULLRESYNC {} {}\n",
+                    state.master_replid, state.master_repl_offset
+                )),
+                RESP::Rdb(vec![0x01, 0x02, 0x03]),
+            ])
         }
     }
 }
