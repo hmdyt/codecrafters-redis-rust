@@ -22,12 +22,25 @@ impl CliArgs {
                     port = args.next();
                 }
                 "--replicaof" => {
-                    let host = args.next().unwrap();
-                    let port = args.next().unwrap();
-                    role = Role::Slave {
-                        master_host: host,
-                        master_port: port,
-                    };
+                    // 1個目の引数が空白でsplitできる場合 -> --replicaof "host port"
+                    // できない場合 -> --replicaof host port
+                    let first = args.next().unwrap();
+                    if first.contains(' ') {
+                        let mut split = first.split(' ');
+                        let host = split.next().unwrap();
+                        let port = split.next().unwrap();
+                        role = Role::Slave {
+                            master_host: host.to_string(),
+                            master_port: port.to_string(),
+                        };
+                    } else {
+                        let host = first;
+                        let port = args.next().unwrap();
+                        role = Role::Slave {
+                            master_host: host,
+                            master_port: port,
+                        };
+                    }
                 }
                 _ => {
                     panic!("unknown option: {}", arg);
