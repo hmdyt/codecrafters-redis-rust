@@ -20,14 +20,21 @@ impl RESP {
                 }
                 ret
             }
+            Self::Rdb(_) => unimplemented!("to_string for Rdb is not implemented yet"),
+        }
+    }
+
+    pub fn as_bytes(self) -> Vec<u8> {
+        match self {
             Self::Rdb(data) => {
-                let mut ret = format!("${}\r\n", data.len());
-                for byte in data {
-                    ret.push(byte as char);
-                }
-                ret.push_str("\r\n");
+                let length_section = format!("${}\r\n", data.len());
+                let data_section = data.as_slice();
+                let mut ret = Vec::with_capacity(length_section.len() + data_section.len());
+                ret.extend_from_slice(length_section.as_bytes());
+                ret.extend_from_slice(data_section);
                 ret
             }
+            _ => self.to_string().as_bytes().to_vec(),
         }
     }
 
@@ -100,27 +107,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_to_string() {
+    fn test_as_bytes() {
+        assert_eq!(RESP::SimpleString("OK".to_string()).as_bytes(), b"+OK\r\n");
         assert_eq!(
-            RESP::SimpleString("OK".to_string()).to_string(),
-            "+OK\r\n".to_string()
+            RESP::BulkStrings("value".to_string()).as_bytes(),
+            b"$5\r\nvalue\r\n"
         );
-        assert_eq!(
-            RESP::BulkStrings("value".to_string()).to_string(),
-            "$5\r\nvalue\r\n".to_string()
-        );
-        assert_eq!(RESP::NullBulkStrings.to_string(), "$-1\r\n".to_string());
+        assert_eq!(RESP::NullBulkStrings.as_bytes(), b"$-1\r\n");
         assert_eq!(
             RESP::Array(vec![
                 RESP::SimpleString("OK".to_string()),
                 RESP::BulkStrings("value".to_string())
             ])
-            .to_string(),
-            "*2\r\n+OK\r\n$5\r\nvalue\r\n".to_string()
+            .as_bytes(),
+            b"*2\r\n+OK\r\n$5\r\nvalue\r\n"
         );
         assert_eq!(
-            RESP::Rdb(vec![0x01, 0x02, 0x03]).to_string(),
-            "$3\r\n\x01\x02\x03\r\n".to_string()
+            RESP::Rdb(vec![0x01, 0x02, 0x03]).as_bytes(),
+            b"$3\r\n\x01\x02\x03"
         );
     }
 
