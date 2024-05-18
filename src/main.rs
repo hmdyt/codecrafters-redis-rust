@@ -84,16 +84,21 @@ fn handle_stream(mut stream: TcpStream) {
             println!("connection closed");
             break;
         } else {
-            let ret = handle_redis_command(RedisCommand::new(RESP::from_bytes(&buf[..read_count])));
-            stream.write(ret.to_string().as_bytes()).unwrap();
+            let got = RESP::from_bytes(&buf[..read_count]);
+            println!("got: {:?}", got.clone());
+            let ret = handle_redis_command(RedisCommand::new(got));
+            println!("ret: {:?}", ret.clone());
+            for resp in ret {
+                stream.write(resp.to_string().as_bytes()).unwrap();
+            }
         }
     }
 }
 
-fn handle_redis_command(command: RedisCommand) -> RESP {
+fn handle_redis_command(command: RedisCommand) -> Vec<RESP> {
     match command {
-        RedisCommand::Echo(s) => RESP::bulk_strings(&s),
-        RedisCommand::Ping => RESP::simple_string("PONG"),
+        RedisCommand::Echo(s) => vec![RESP::bulk_strings(&s)],
+        RedisCommand::Ping => vec![RESP::simple_string("PONG")],
         RedisCommand::Set {
             key,
             value,
@@ -103,11 +108,11 @@ fn handle_redis_command(command: RedisCommand) -> RESP {
                 SetCommandOption::Px(px) => Some(*px),
             });
             store::set(&key, &value, px);
-            RESP::simple_string("OK")
+            vec![RESP::simple_string("OK")]
         }
         RedisCommand::Get { key } => match store::get(&key) {
-            Some(value) => RESP::bulk_strings(&value),
-            None => RESP::NullBulkStrings,
+            Some(value) => vec![RESP::bulk_strings(&value)],
+            None => vec![RESP::NullBulkStrings],
         },
         RedisCommand::Info { section } => match section {
             InfoSection::All => handle_redis_command_info_replication(),
@@ -115,24 +120,24 @@ fn handle_redis_command(command: RedisCommand) -> RESP {
         },
         RedisCommand::Replconf { .. } => {
             // TODO: implement
-            RESP::simple_string("OK")
+            vec![RESP::simple_string("OK")]
         }
         RedisCommand::Psync { .. } => {
             let state = ServerState::get();
-            RESP::Array(vec![
+            vec![
                 RESP::SimpleString(format!(
                     "FULLRESYNC {} {}\n",
                     state.master_replid, state.master_repl_offset
                 )),
                 RESP::Rdb(vec![0x01, 0x02, 0x03]),
-            ])
+            ]
         }
     }
 }
 
-fn handle_redis_command_info_replication() -> RESP {
+fn handle_redis_command_info_replication() -> Vec<RESP> {
     let state = ServerState::get();
-    match state.role {
+    let ret = match state.role {
         server_state::Role::Master => RESP::BulkStrings(format!(
             "role:master\nmaster_replid:{}\nmaster_repl_offset:{}",
             state.master_replid, state.master_repl_offset
@@ -141,5 +146,6 @@ fn handle_redis_command_info_replication() -> RESP {
             master_host: _,
             master_port: _,
         } => RESP::bulk_strings("role:slave"),
-    }
+    };
+    vec![ret]
 }
